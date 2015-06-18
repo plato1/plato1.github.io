@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+
+    <style type="text/css">
+        html { height: 100% }
+        body { height: 100%; margin: 0px; padding: 0px }
+        #map_canvas { height: 100% }
+        #ListBox {  overflow:auto;
+                    width:300px; max-width:300px;
+                    height:300px; max-height:300px;
+                    display: inline-block;
+                    border: 3px solid black;
+                    padding-top: 3px;
+                    margin-top: 8px;
+                }
+        #SearchBox  {
+                        width:300px;
+                    }
+
+         ul {   border: 1px solid black;
+                list-style-type: none;
+            }
+/*
+    li  {   border: 1px solid black;
+        }
+*/
+
+        table, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+        }
+        td {
+            padding: 5px;
+        }
+
+
+    </style>
+
+    <script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script>
+    <script type="text/javascript" src="jquery-2.1.3.min.js"></script>
+    <script type="text/javascript" src="knockout-3.2.0.min.js"></script>
+
+    <script type="text/javascript">
+        // Model - put primary data structures in here...the ones KnockoutJS interacts with
+
+        // array of just the names of locations marked on map
+        var myViewModel = {
+            yelp_businessInfo: [],
+            searchStr: ko.observable(),
+            listBoxItems: ko.observableArray(),
+        }
+
+
+         myViewModel.selectedItems = ko.computed(function () {
+             return ko.utils.arrayFilter(myViewModel.listBoxItems(), function (obj) {
+                 return obj.show;
+             });
+         });
+
+        // as user enters each character for the search request,
+        // display matching locations in List Box
+        myViewModel.searchStr.subscribe(function() {
+            var str = document.getElementById("SearchBox").value;
+            for (var i = 0; i<myViewModel.listBoxItems().length; i++) {
+                var re = new RegExp("^"+str,"gi");
+                if (myViewModel.listBoxItems()[i].data.match(re)) {
+                  myViewModel.listBoxItems()[i].showData =true;
+                }
+                else {
+                 myViewModel.listBoxItems()[i].showData =false;
+                }
+            }
+           // return true;
+        });
+
+    </script>
+
+    <script type="text/javascript">
+        // Namespace for Yelp stuff
+
+        var yelp = {
+
+                YWSID_KEY: "ynoYeq0HNwWfPKFRqK-5qg",       // For API Version 1.0
+                //function to get data from YELP
+                getYelp: function(term) {
+                    var timeout;
+        //            bounds = new google.maps.LatLngBounds ();
+                    $.getJSON('http://api.yelp.com/business_review_search?lat='+map.getCenter().lat()+'&long='+map.getCenter().lng()+'&limit=10&ywsid='+yelp.YWSID_KEY+'&term='+term+'&callback=?',
+                        function(data)
+                        {
+
+                                                            // save data on store to array
+                            $.each(data.businesses, function(i,item){
+                                trace(item);
+
+                                yelp.SaveStoreInfo(item);
+
+
+                                infowindowcontentArray[i] = yelp.BuildInfoWindow(item);
+
+                                // create markers with a timedelay.
+                                // if animation=DROP then they will slowly drop into place
+                                // Must use closure function b/c when the timeout is over and createYelpMarker function
+                                // is about to be executed, it will use the value of the parameters at that moment, not
+                                // the values of parameters when the setTimeout() function was called. Closure will pass
+                                // on the parameters at the moment setTimeout is called.
+                                timeout = i*300;
+                                (function(a,b,c,d,e) {
+                                    window.setTimeout(function() {
+                                      yelp.createYelpMarker(a,b,c,d,e);
+                                    }, timeout);
+                                }(i,item.latitude,item.longitude,item.name, infowindowcontentArray[i]));
+
+                            });
+
+                            // once all data has been recieved, initialize the displayed list box
+                            // default check box is FourSquare
+                            if (currentSearchEngine == 'Yelp') {
+                                initListBox();
+                            }
+                        }
+                    );
+                },
+
+                // save venues data on store to array
+                SaveStoreInfo: function(item) {
+                    // build an object
+                    var obj={};
+                    obj.name= item.name;
+                    obj.address1= item.address1 + item.address2 + item.address3;
+                    obj.address2= item.city + ", " + item.state + ", " + item.zip;
+                    // open or closed right now?
+                    if (item.is_closed == true) {
+                        obj.status= "Closed";
+                    } else {
+                        obj.status= "Open";
+                    }
+
+                    obj.telephone= item.phone;
+                    obj.rating= item.avg_rating;
+                    obj.webiste= item._url;
+                    obj.review= "";
+                    //push object into array
+                //    yelp_businessInfo.push(obj);
+                    myViewModel.yelp_businessInfo.push(obj);
+
+                },
+
+                                // build the info window which will be shown when a marker is clicked
+                BuildInfoWindow: function(item) {
+                    var info;
+                    info = '<strong>'+ item.name+'</strong><br>';
+                    info += '<strong>'+ item.address1 + item.address2 + item.address3 +'</strong><br>';
+                    info += '<strong>'+ item.city + ", " + item.state + ", " + item.zip +'</strong><br>';
+                    info += '<strong>'+ item.phone+'</strong><br>';
+                   // info += '<strong>'+ item.rating_img_url_small+'</strong><br>';
+                    info += '<img src="'+item.photo_url+'"><br>';
+                    // if url is not defined then dont display
+                    if (item.url === undefined) {
+                    } else {
+                        info += '<a href="'+item.url+'" target="_blank">see it on Yelp</a>';
+                    }
+
+                    return info;
+                },
+
+                //Function to create yelp marker
+                createYelpMarker: function(i,latitude,longitude,title, infowindowcontent) {
+                    var markerLatLng = new google.maps.LatLng(latitude,longitude);
+
+                    //extent bounds for each stop and adjust map to fit to it
+              //      bounds.extend(markerLatLng);
+              //      map.fitBounds(bounds);
+
+                    //marker displayed on map by Google api as soon as call for a new marker is made
+                    yelpMrkrs[i] = new google.maps.Marker({
+                        position: markerLatLng,
+                        map: map,
+                        title: title,
+                        icon: 'yelp.png',        // 32x32 icon
+                        animation: google.maps.Animation.DROP,
+                        visible: false,
+                    });
+
+                    // if checkbox for marker is checked then enable visibility of marker on map
+                    if (document.getElementById("toggleYelp").checked == true) {
+                        yelpMrkrs[i].visible = true;
+                    } else {
+                        yelpMrkrs[i].visible = false;
+                    }
+
+                    //add an onclick event..make marker bounce after click
+                    google.maps.event.addListener(yelpMrkrs[i], 'click', function() {
+                        yelpMrkrs[i].setAnimation(google.maps.Animation.BOUNCE);
+                        infowindow.setContent(infowindowcontent);
+                        infowindow.open(map,yelpMrkrs[i]);
+                    });
+
+                    // when user closes infowindow, stop the marker from bouncing
+                    google.maps.event.addListener(infowindow,'closeclick',function(){
+                        yelpMrkrs[i].setAnimation(null);
+                    });
+
+                },
+
+                //toggle array layers on/off
+                toggleArrayLayer: function(arraylayer)
+                {
+                    currentSearchEngine = 'Yelp';
+                    if (document.getElementById("toggleYelp").checked == true)  {
+                        initListBox();
+                    }
+
+                    if (arraylayer) {
+                        for (i in arraylayer) {
+                            if (arraylayer[i].getVisible() == true)
+                            {
+                                arraylayer[i].setMap(null);
+                                arraylayer[i].visible = false;
+                            }
+                            else
+                            {
+                                arraylayer[i].setMap(map);
+                                arraylayer[i].visible = true;
+                            }
+                        }
+                    }
+                },
+
+
+        }
+    </script>
+
+
+    <script type="text/javascript">
+
+        //declare map
+        var map;
+
+        //array to hold yelp markers
+        var yelpMrkrs = [];
+
+        //defines bounding box of all locations
+        var bounds;
+
+        //info window
+        var infowindow = new google.maps.InfoWindow();
+        var infowindowcontentArray = [];
+
+        // Search location to be displayed
+        // if user does not provide location then take from the marker info
+        var searchLoc = {
+            city: "Santa Monica",
+            state: "California",
+            country: "",
+        };
+
+        // default search engine on init is Yelp
+        var currentSearchEngine = 'Yelp';
+
+        //trace function for debugging
+        function trace(message)
+        {
+            if (typeof console != 'undefined')
+            {
+                console.log(message);
+            }
+        }
+
+
+        // Current Search Location Box
+        initLocationBox = function() {
+            var txt = document.createTextNode(searchLoc.city + " " + searchLoc.state + " " + searchLoc.country);
+            $( "#CurrentLocation" ).append(txt);
+        }
+
+        // Initialize the List box
+        // using DOM to add a new div instead of jQuery
+        // Table will be prebuilt thru this function
+        initListBox = function() {
+            // create a table with as many rows as there are info items in array for specified search engine
+            // default check box is Yelp
+            //set stores to the list that was returned in search request.
+            var data;
+            var i;
+            var row;
+
+
+            // empty the table first
+            var table = document.getElementById("t1");
+
+//TODO - why is row turning yellow only when clicked instead of when mouseover??
+            switch (currentSearchEngine) {
+                case 'Yelp':
+                    //stores= yelp_businessInfo;
+
+                    // loop thru all the markers in the array
+                    for (i=0; i < myViewModel.yelp_businessInfo.length; i++) {
+
+                        // Create an empty <tr> element and add it to the 1st position of the table:
+                        // Also setup the handlers for mouseover, mouseout, and onclick
+
+                        var row = table.insertRow(i);
+                        //row = table.rows[i];
+
+                        // change color of row if hovering with mouse
+                        row.onmouseover = function(e) {
+                            var rowNum = e.srcElement.parentNode.rowIndex;
+                            // highlight background color of selected table row
+                            console.log("#377-rownNum=", rowNum);
+                            document.getElementById("t1").rows[rowNum].bgColor = "Yellow";
+                        };
+                         row.onmouseout = function(e) {
+                            var rowNum = e.srcElement.parentNode.rowIndex;
+                            // unhighlight background color of selected table row
+                            console.log("#383-rownNum=", rowNum);
+                            document.getElementById("t1").rows[rowNum].bgColor = "";
+                        };
+                        // make row clickable
+                        row.onclick = function(e) {
+                            var rowNum = e.srcElement.parentNode.rowIndex;
+                            console.log("#389-rownNum=", rowNum);
+                            yelpMrkrs[rowNum].setAnimation(google.maps.Animation.BOUNCE);
+                            infowindow.setContent(infowindowcontentArray[rowNum]);
+                            infowindow.open(map,yelpMrkrs[rowNum]);
+                        };
+
+
+                        // Just store data to appear in list in array and let Knockout handle
+                        // the display part
+                        var cell1={};
+                        var store = myViewModel.yelp_businessInfo[i];
+
+                        cell1.data = store.name+ "\r\n";
+                        cell1.data += store.address1 + store.address2 + " " + store.status;
+                        cell1.showData = true;
+                        myViewModel.listBoxItems.push(cell1);
+                    }
+                    break;
+            }
+
+        }
+
+
+        //Function that gets run when the document loads
+        initialize = function()
+        {
+            // default location - Santa Monica, CA
+            var latlng = new google.maps.LatLng(34.0194543,-118.4911912);
+            var myOptions = {
+                zoom: 13,
+                center: latlng,
+                mapTypeId: google.maps.MapTypeId.ROADMAP
+            };
+            map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+
+            // Current Search Location Box
+            initLocationBox();
+
+            // Search box
+           // initSearchBox();
+
+            // Get sites
+            yelp.getYelp('cafe');
+        }
+    </script>
+</head>
+
+<!--
+    Code below only gets called when initialize() has completed.
+-->
+<body onload="initialize()">
+    <!-- side panel div container -->
+    <div style="position:absolute; width:380px; height: 100%; overflow:auto; float:left; padding-left:10px; padding-right:10px;">
+        <h1>Cafe's in Santa Monica, CA</h1>
+        <table style ="width:100%">
+            <tr>
+                <td>
+                    <input type="checkbox" id="toggleYelp" onClick="yelp.toggleArrayLayer(yelpMrkrs)" checked > Yelp layer
+                </td>
+            </tr>
+        </table>
+
+        <p><input id="SearchBox" placeholder="Search" data-bind="textInput: searchStr" /></p>
+
+        <div id="ListBox">
+            <table id="t1">
+                <tbody data-bind="foreach: listBoxItems">
+                    <tr><td data-bind="text:data, visible:showData"></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <!-- map div container -->
+    <div id="map_canvas" style="height:100%; margin-left:400px;"></div>
+</body>
+<script type="text/javascript">
+    ko.applyBindings(myViewModel);
+</script>
+</html>
